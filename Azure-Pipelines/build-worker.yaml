@@ -1,0 +1,75 @@
+# Docker
+# Build and push an image to Azure Container Registry
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+# Trigger the pipeline when changes occur in the 'worker' directory
+trigger:
+  paths:
+    include:
+      - worker/*
+
+# Define the repository resource, which is the repository where this pipeline is defined
+resources:
+- repo: self
+
+# Define variables to be used throughout the pipeline
+variables:
+  # The service connection to the Azure Container Registry (ACR), created when the pipeline was set up
+  dockerRegistryServiceConnection: '12e7cad2-fa02-4f6b-a57e-c6da57bfe438'
+  # The name of the Docker image repository in ACR where the image will be stored
+  imageRepository: 'workerapp'
+  # The URL of the Azure Container Registry
+  containerRegistry: 'gvotingapp.azurecr.io'
+  # The path to the Dockerfile that will be used to build the Docker image
+  dockerfilePath: '$(Build.SourcesDirectory)/result/Dockerfile'
+  # The tag to assign to the Docker image, typically the unique build ID
+  tag: '$(Build.BuildId)'
+
+# Specify the agent pool that will be used to run the pipeline jobs
+pool: 
+  name: 'mylaptopagent'
+
+# Define the stages of the pipeline
+stages:
+- stage: Build
+  displayName: Build stage
+  jobs:
+  - job: Build
+    displayName: Build
+    steps:
+    # Build the Docker image using the specified Dockerfile
+    - task: Docker@2
+      displayName: Build the image
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: '$(imageRepository)'
+        command: 'build'
+        Dockerfile: '**/Dockerfile'  # The path to the Dockerfile
+        tags: '$(tag)'  # Use the build ID as the image tag
+
+- stage: Push
+  displayName: Push stage
+  jobs:
+  - job: Push
+    displayName: Push
+    steps:
+    # Push the built Docker image to the Azure Container Registry
+    - task: Docker@2
+      displayName: Push the image
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: '$(imageRepository)'
+        command: 'push'
+        tags: '$(tag)'  # Push the image with the build ID tag
+
+- stage: Update
+  displayName: Update k8 Manifest
+  jobs:
+  - job: Update
+    displayName: Update k8 Manifest
+    steps:
+    # Run a shell script to update the Kubernetes manifest, applying the new Docker image
+      - task: ShellScript@2
+        inputs:
+          scriptPath: 'scripts/update-k8s-manifest.sh'  # Path to the shell script for updating the Kubernetes manifest
+          args: 'worker $(imageRepository) $(tag)'  # Arguments passed to the script: app name, image repository, and image tag
